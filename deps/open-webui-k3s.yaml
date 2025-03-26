@@ -1,0 +1,97 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: open-webui
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  namespace: open-webui
+  name: open-webui
+spec:
+  selector:
+    app: open-webui
+  type: NodePort
+  ports:
+    - port: 8080
+      targetPort: 8080
+      nodePort: 32280
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: open-webui
+  name: open-webui
+  labels:
+    app: open-webui
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  minReadySeconds: 15
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: open-webui
+  template:
+    metadata:
+      labels:
+        app: open-webui
+    spec:
+      containers:
+        - name: open-webui
+          ports:
+            - containerPort: 8080
+          image: ghcr.io/open-webui/open-webui:main
+          volumeMounts:
+            - mountPath: /app/backend/data
+              name: data-volume
+      volumes:
+        - name: data-volume
+          hostPath:
+            path: /data/open-webui
+            type: DirectoryOrCreate
+
+---
+apiVersion: traefik.containo.us/v1alpha1
+kind: Middleware
+metadata:
+  namespace: open-webui
+  name: force-https
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  namespace: open-webui
+  name: open-webui-ingress
+  annotations:
+    spec.ingressClassName: "traefik"
+    traefik.ingress.kubernetes.io/router.middlewares: open-webui-force-https@kubernetescrd
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - secretName: open-webui-tls
+      hosts:
+        - ai.xxx.com
+  rules:
+    - host: ai.xxx.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: open-webui
+                port:
+                  number: 8080
